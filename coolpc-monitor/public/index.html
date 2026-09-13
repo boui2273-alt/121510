@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>原價屋 CoolPC 即時監控儀表板</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🔌 XPG 市場情報監控台</h1>
+    <div class="sub">追蹤原價屋水冷、電源供應器、機殼風扇／配件，快速掌握競品定價與新品動態。</div>
+    <div class="update-status" id="lastUpdated">尚無資料，請按「開始監控」。</div>
+  </header>
+
+  <div class="panel controls">
+    <div class="control">
+      <label for="categorySelect">分類</label>
+      <select id="categorySelect"></select>
+    </div>
+    <div class="control">
+      <label for="brandFilter">品牌篩選</label>
+      <select id="brandFilter"><option value="">全部品牌</option></select>
+    </div>
+    <div class="control"><label for="wattageFilter">瓦數</label><select id="wattageFilter"><option value="">全部瓦數</option></select></div>
+    <div class="control"><label for="typeFilter">種類</label><select id="typeFilter"><option value="">全部種類</option></select></div>
+    <div class="control"><label for="moduleFilter">直出／模組</label><select id="moduleFilter"><option value="">全部形式</option></select></div>
+    <div class="control">
+      <label for="pollInterval">輪詢間隔 (秒)</label>
+      <input id="pollInterval" type="number" min="30" step="30" value="300">
+    </div>
+    <div class="control">
+      <button id="startStopBtn" class="btn primary">▶ 開始監控</button>
+    </div>
+    <div class="control">
+      <button id="notifyBtn" class="btn">🔔 啟用桌面通知</button>
+      <span class="hint-inline" id="notifyStatus"></span>
+    </div>
+  </div>
+
+  <div class="panel controls">
+    <div class="control">
+      <label for="alertType">🎯 跌價提醒門檻</label>
+      <select id="alertType">
+        <option value="">關閉</option>
+        <option value="percent">降價百分比 (%)</option>
+        <option value="amount">降價金額 (NT$)</option>
+      </select>
+    </div>
+    <div class="control">
+      <label for="alertValue">門檻值</label>
+      <input id="alertValue" type="number" min="1" step="1" placeholder="例：10" disabled>
+    </div>
+    <div class="control">
+      <button id="alertApplyBtn" class="btn">套用提醒</button>
+      <span class="hint-inline" id="alertStatus">尚未設定跌價提醒</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="stat" id="stat"></div>
+  </div>
+
+  <div class="panel">
+    <h2 class="panel-title">📦 商品清單</h2>
+    <div class="scroll"><table id="tbl"></table></div>
+  </div>
+
+  <div class="panel">
+    <h2 class="panel-title">🏷️ 品牌市場摘要</h2>
+    <div class="hint analysis-note">目前篩選條件下的品牌價格帶；XPG／威剛會特別標示。</div>
+    <div class="scroll market-scroll"><table id="brandMarket"></table></div>
+  </div>
+
+  <div class="grid2 alerts-grid">
+    <div class="panel"><h2 class="panel-title">💰 價格異動提醒</h2><div class="scroll changes-scroll"><ul id="priceChangesLog" class="changes-log"></ul></div></div>
+    <div class="panel"><h2 class="panel-title">🆕 新品／上下架提醒</h2><div class="scroll changes-scroll"><ul id="stockChangesLog" class="changes-log"></ul></div></div>
+  </div>
+
+  <div class="panel trend-panel">
+    <h2 class="panel-title">📈 品項價格趨勢分析</h2>
+    <div class="control trend-select"><label for="productSelect">選擇品項</label><select id="productSelect"><option value="">請選擇品項</option></select></div>
+    <canvas id="priceChart" height="90"></canvas>
+  </div>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

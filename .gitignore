@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+node_modules/
+.venv/
+venv/
+env/
+.env
+*.log
+schools_115_calendar.db
+output/*
+!output/.gitkeep

@@ -1,0 +1,14 @@
+{
+  "name": "coolpc-cli-monitor",
+  "version": "1.0.0",
+  "description": "原價屋估價系統 CLI 自動監控工具 (開放式水冷/機殼(+電源)/電源供應器)",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "cheerio": "^1.0.0",
+    "iconv-lite": "^0.6.3"
+  }
+}

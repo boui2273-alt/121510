@@ -1,0 +1,15 @@
+{
+  "name": "coolpc-monitor",
+  "version": "1.0.0",
+  "description": "原價屋估價系統自動監控工具",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "iconv-lite": "^0.6.3"
+  }
+}
