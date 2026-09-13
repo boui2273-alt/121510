@@ -16,8 +16,12 @@ import json
 import sqlite3
 import logging
 import asyncio
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from html.parser import HTMLParser
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from flask import Flask, render_template_string, request, jsonify, send_file
 import pandas as pd
@@ -37,6 +41,10 @@ EVENT_KEYWORDS = re.compile(r"(校慶|運動會|體育表演會|體育大會|聯
 DATE_REGEX = re.compile(
     r"(?:(?:115|2026)[\.\-/年]\s*)?(?:(8|9|10|11|12|08|09|1)[\.\-/月]\s*([0-3]?[0-9])[日號]?)|(?:2027[\.\-/年]\s*(?:1|01)[\.\-/月]\s*([0-3]?[0-9])[日號]?)"
 )
+STUDENT_COUNT_REGEX = re.compile(r"(?:學生(?:人數|總數|數)|全校學生(?:人數|數)?)[：:\s]*([0-9,]{2,6})")
+CLASS_COUNT_REGEX = re.compile(r"(?:班級(?:數|總數)|全校班級數)[：:\s]*([0-9,]{1,4})")
+CRAWL_TIMEOUT_SECONDS = 12
+CRAWL_USER_AGENT = "SchoolActivityCrawler/1.0 (+educational)"
 
 # -----------------------------------------------------------------------------
 # 資料庫初始化與操作
@@ -45,6 +53,86 @@ def get_db():
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+class VisibleTextParser(HTMLParser):
+    """保留公告頁面可見文字，排除 script/style 內容。"""
+
+    def __init__(self):
+        super().__init__()
+        self.parts = []
+        self.hidden_depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() in {"script", "style", "noscript", "svg"}:
+            self.hidden_depth += 1
+
+    def handle_endtag(self, tag):
+        if tag.lower() in {"script", "style", "noscript", "svg"} and self.hidden_depth:
+            self.hidden_depth -= 1
+
+    def handle_data(self, data):
+        if not self.hidden_depth:
+            self.parts.append(data)
+
+
+def extract_visible_text(html):
+    parser = VisibleTextParser()
+    parser.feed(html)
+    return re.sub(r"\s+", " ", " ".join(parser.parts)).strip()
+
+
+def fetch_school_page(url):
+    request = Request(url, headers={"User-Agent": CRAWL_USER_AGENT})
+    with urlopen(request, timeout=CRAWL_TIMEOUT_SECONDS) as response:
+        raw = response.read()
+        charset = response.headers.get_content_charset() or "utf-8"
+        return raw.decode(charset, errors="replace")
+
+
+def parse_school_page(html):
+    text = extract_visible_text(html)
+    event_match = EVENT_KEYWORDS.search(text)
+    date_match = DATE_REGEX.search(text)
+    event_date = None
+    if date_match:
+        month = date_match.group(1)
+        day = date_match.group(2)
+        if month and day:
+            year = "2026"
+            event_date = f"{year}/{int(month):02d}/{int(day):02d}"
+        elif date_match.group(3):
+            event_date = f"2027/01/{int(date_match.group(3)):02d}"
+
+    def parse_number(pattern):
+        match = pattern.search(text)
+        return int(match.group(1).replace(",", "")) if match else None
+
+    return {
+        "event_title": event_match.group(0) if event_match else None,
+        "event_date": event_date,
+        "student_count": parse_number(STUDENT_COUNT_REGEX),
+        "class_count": parse_number(CLASS_COUNT_REGEX),
+    }
+
+
+def crawl_school(school):
+    url = school["homepage_url"]
+    if not url:
+        return {"crawl_status": "未設定官網網址"}
+    try:
+        parsed = parse_school_page(fetch_school_page(url))
+    except (HTTPError, URLError, TimeoutError, ValueError) as error:
+        logger.warning("抓取失敗 %s: %s", school["school_id"], error)
+        return {"crawl_status": f"抓取失敗：{type(error).__name__}"}
+
+    found_fields = sum(value is not None for value in parsed.values())
+    return {
+        **parsed,
+        "event_source_url": url if parsed["event_date"] or parsed["event_title"] else None,
+        "student_source_url": url if parsed["student_count"] is not None else None,
+        "crawl_status": f"完成：取得 {found_fields}/4 個欄位",
+    }
 
 def init_db():
     conn = get_db()
@@ -62,8 +150,23 @@ def init_db():
                 event_date TEXT,
                 makeup_date TEXT,
                 crawl_status TEXT,
-                updated_at TIMESTAMP
+                updated_at TIMESTAMP,
+                event_source_url TEXT,
+                student_source_url TEXT
             )
+        """)
+        for column in ("event_source_url", "student_source_url"):
+            try:
+                conn.execute(f"ALTER TABLE public_schools ADD COLUMN {column} TEXT")
+            except sqlite3.OperationalError:
+                pass
+        conn.execute("""
+            UPDATE public_schools
+            SET student_count = NULL, class_count = NULL, event_title = NULL,
+                event_date = NULL, makeup_date = NULL, crawl_status = '待首次抓取'
+            WHERE event_source_url IS NULL
+              AND student_source_url IS NULL
+              AND crawl_status LIKE '已排定%'
         """)
         # 檢查是否已有預設資料，若無則注入示範代表性資料
         cur = conn.cursor()
@@ -136,7 +239,7 @@ def seed_default_schools(conn):
             INSERT OR REPLACE INTO public_schools 
             (school_id, city, district, school_name, student_count, class_count, homepage_url, event_title, event_date, makeup_date, crawl_status, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8], s[9], s[10], now_str))
+        """, (s[0], s[1], s[2], s[3], None, None, s[6], None, None, None, "待首次抓取", now_str))
 
 
 # Gunicorn imports this module without executing the __main__ block.
@@ -384,7 +487,7 @@ function renderTable() {
             <td class="text-center fw-bold text-secondary">${s.district}</td>
             <td class="text-center text-muted font-monospace">${s.school_id}</td>
             <td><strong>${s.school_name}</strong></td>
-            <td class="text-end fw-bold text-primary font-monospace">${(s.student_count || 0).toLocaleString()}</td>
+            <td class="text-end fw-bold text-primary font-monospace">${s.student_count == null ? '未取得' : s.student_count.toLocaleString()}</td>
             <td class="text-end font-monospace text-muted">${s.class_count || 0}</td>
             <td class="text-center"><span class="badge badge-date px-2 py-1">${s.event_date || '未排定'}</span></td>
             <td class="text-center text-muted small">${s.makeup_date || '無'}</td>
@@ -493,24 +596,52 @@ def api_schools():
 
 @app.route("/api/refresh", methods=["POST"])
 def api_refresh():
-    """點擊『重新整理抓取系統按鈕』時觸發此 API，重爬校網最新公告並更新 SQLite"""
+    """抓取各校官網並更新日期、學生人數與資料來源。"""
     logger.info("使用者發動即時重新整理抓取任務...")
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT * FROM public_schools")
     schools = [dict(r) for r in cur.fetchall()]
 
-    # 模擬非同步重爬與更新
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    crawl_results = {}
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = {executor.submit(crawl_school, school): school["school_id"] for school in schools}
+        for future in as_completed(futures):
+            school_id = futures[future]
+            try:
+                crawl_results[school_id] = future.result()
+            except Exception as error:
+                logger.exception("爬蟲未預期錯誤 %s", school_id)
+                crawl_results[school_id] = {"crawl_status": f"爬蟲錯誤：{type(error).__name__}"}
+
     with conn:
-        for s in schools:
+        for school in schools:
+            result = crawl_results[school["school_id"]]
             conn.execute("""
                 UPDATE public_schools 
-                SET updated_at = ?, crawl_status = '已完成即時巡檢 (排程有效)'
+                SET event_title = ?, event_date = ?, makeup_date = NULL,
+                    student_count = ?, class_count = ?, crawl_status = ?,
+                    event_source_url = ?, student_source_url = ?, updated_at = ?
                 WHERE school_id = ?
-            """, (now_str, s["school_id"]))
+            """, (
+                result.get("event_title"),
+                result.get("event_date"),
+                result.get("student_count"),
+                result.get("class_count"),
+                result.get("crawl_status", "未取得資料"),
+                result.get("event_source_url"),
+                result.get("student_source_url"),
+                now_str,
+                school["school_id"],
+            ))
 
-    return jsonify({"status": "ok", "total": len(schools), "refreshed_at": now_str})
+    return jsonify({
+        "status": "ok",
+        "total": len(schools),
+        "crawled": sum("取得" in result.get("crawl_status", "") for result in crawl_results.values()),
+        "refreshed_at": now_str,
+    })
 
 @app.route("/api/export", methods=["GET"])
 def api_export():
