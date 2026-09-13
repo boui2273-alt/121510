@@ -138,6 +138,11 @@ def seed_default_schools(conn):
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8], s[9], s[10], now_str))
 
+
+# Gunicorn imports this module without executing the __main__ block.
+# Initialize the SQLite schema before serving health checks and API requests.
+init_db()
+
 # -----------------------------------------------------------------------------
 # Web UI HTML 樣板 (響應式設計、即時搜尋、全選/反選、重整按鈕、批次匯出)
 # -----------------------------------------------------------------------------
