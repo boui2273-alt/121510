@@ -31,6 +31,17 @@ python prepare_deployment.py
 
 `Procfile` 使用 Gunicorn 啟動 `school_web_dashboard:app`，並讀取雲端平台提供的 `$PORT`。
 
+## 分享給同事使用
+
+本專案已加入 `render.yaml`，可用 Render 建立公開 HTTPS 網址：
+
+1. 登入 <https://render.com>，選擇 **New > Blueprint**。
+2. 連結 GitHub repository `boui2273-alt/121510`。
+3. 選擇 repository 的 `render.yaml`，按 **Apply**。
+4. 部署完成後，將 Render 顯示的 `https://...onrender.com` 網址分享給同事。
+
+免費服務閒置後可能休眠，第一次開啟需要等待幾十秒。SQLite 資料庫會在服務環境中建立示範資料；若要長期保存同事更新的資料，應改用雲端資料庫或掛載持久磁碟。
+
 輸出檔案會放在 `output/`：
 
 - `115學年度新北桃園國小活動日程表.csv`
