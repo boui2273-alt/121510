@@ -552,7 +552,7 @@ async function triggerRefresh() {
         const res = await resp.json();
         if (res.status === "ok") {
             await loadSchools();
-            alert(`重新整理完成！已巡檢 ${res.total} 所公立國小最新公告。`);
+            alert(`重新整理完成！已巡檢 ${res.total} 所學校，成功解析 ${res.crawled || 0} 所。`);
         } else {
             alert("重新整理發生問題：" + res.message);
         }
